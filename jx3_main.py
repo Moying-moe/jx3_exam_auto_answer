@@ -27,6 +27,7 @@ import threading
 import difflib
 
 import tkinter
+import tkinter.messagebox
 
 #############################################################
 # set appid and appkey here
@@ -64,7 +65,7 @@ class Hotkey(threading.Thread):  #创建一个Thread.threading的扩展类
         user32.UnregisterHotKey(None, id1)
         user32.UnregisterHotKey(None, id2)
         if not user32.RegisterHotKey(None, id1, 0, win32con.VK_F9):   # 注册快捷键F9并判断是否成功，该热键用于执行一次需要执行的内容。
-            showerror("热键创建失败!", "F9热键创建失败!请确定没有其他程序占用这个热键")
+            tkinter.messagebox.showerror("热键创建失败!", "F9热键创建失败!请确定没有其他程序占用这个热键")
             print("Unable to register id", id1) # 返回一个错误信息
             with open('error%s.log'%str(datetime.datetime.fromtimestamp(time.time())).split('.')[0].replace(':','-'),'w') as f:
                 f.write('F9热键创建错误\n' + traceback.format_exc())
@@ -73,7 +74,7 @@ class Hotkey(threading.Thread):  #创建一个Thread.threading的扩展类
                 root.destroy()
             sys.exit()
         if not user32.RegisterHotKey(None, id2, 0, win32con.VK_F10):   # 注册快捷键F9并判断是否成功，该热键用于执行一次需要执行的内容。
-            showerror("热键创建失败!", "F10热键创建失败!请确定没有其他程序占用这个热键")
+            tkinter.messagebox.showerror("热键创建失败!", "F10热键创建失败!请确定没有其他程序占用这个热键")
             print("Unable to register id", id2) # 返回一个错误信息
             with open('error%s.log'%str(datetime.datetime.fromtimestamp(time.time())).split('.')[0].replace(':','-'),'w') as f:
                 f.write('F10热键创建错误\n' + traceback.format_exc())
@@ -91,12 +92,13 @@ class Hotkey(threading.Thread):  #创建一个Thread.threading的扩展类
 
                     if msg.message == win32con.WM_HOTKEY:  
                         if msg.wParam == id1:
-                            global SCANNING,nowpic,lb
-                            lb['text'] = '正在识别 请稍候...'
+                            global SCANNING,nowpic
                             nowpic = ImageGrab.grab(bbox=(posx1, posy1, posx2, posy2))
                             SCANNING = True
                             is_change()
-                            hotkeyF9()
+                            t = threading.Thread(target=f1)
+                            t.setDaemon(True)
+                            t.start()
                         elif msg.wParam == id2:
                             btnexit()
 
@@ -157,7 +159,10 @@ def hotkeyF9():
     if temp['ret'] != 0:
         print('错误！可能是截图出错或者响应时间超过五秒。')
         print(str(temp))
-        lb['text'] = '出错！可能是同一时间使用者太多。按F9重新开始，按F10退出。'
+        if CLICKTO:
+            lb['text'] = '出错！可能是同一时间使用者太多。单击这里重新开始，右击这里退出。'
+        else:
+            lb['text'] = '出错！可能是同一时间使用者太多。按F9重新开始，按F10退出。'
         SCANNING = False
     else:
         text = ''
@@ -168,13 +173,31 @@ def hotkeyF9():
         quest = question[0]
         print('答案：',tiku[quest])
         if question[1] < 0.4:
-            lb['text'] = tiku[quest]+'(可信度很低 可能出现了错误 已停止自动查题 按F9继续 按F10退出)'
+            if CLICKTO:
+                lb['text'] = tiku[quest]+'(可信度很低 可能出现了错误 已停止自动查题 单击这里继续 右击这里退出)'
+            else:
+                lb['text'] = tiku[quest]+'(可信度很低 可能出现了错误 已停止自动查题 按F9继续 按F10退出)'
             SCANNING = False
         else:
-            lb['text'] = tiku[quest]+'(按F10退出)'
+            if CLICKTO:
+                lb['text'] = tiku[quest]+'(右击这里退出)'
+            else:
+                lb['text'] = tiku[quest]+'(按F10退出)'
 
 
+def clickF9(_):
+    global SCANNING,nowpic
+    nowpic = ImageGrab.grab(bbox=(posx1, posy1, posx2, posy2))
+    SCANNING = True
+    is_change()
+    t = threading.Thread(target=f1)
+    t.setDaemon(True)
+    t.start()
 
+def clickF10(_):
+    btnexit()
+
+    
 def btn():
     global window
     global root,lb
@@ -182,9 +205,10 @@ def btn():
     IS_SHOWN = True
     window.state('iconic')
     wbtn['state'] = 'disabled'
-    
-    hotkey = Hotkey()  
-    hotkey.start()
+
+    if not CLICKTO:
+        hotkey = Hotkey()  
+        hotkey.start()
     root = tkinter.Tk()
     root.wm_attributes('-topmost',1)
     if BG:
@@ -194,7 +218,12 @@ def btn():
     root.overrideredirect(True)
     root["background"] = "white"
     root.geometry("+%s+%s"%(showx,showy))
-    lb = tkinter.Label(root, text = '欢迎使用剑网三智能答题器 按F9开始查题 按F10退出',bg='white')
+    if CLICKTO:
+        root.bind('<Button-1>',clickF9)
+        root.bind('<Button-3>',clickF10)
+        lb = tkinter.Label(root, text = '欢迎使用剑网三智能答题器 单击这里开始查题 右击这里退出',bg='white')
+    else:
+        lb = tkinter.Label(root, text = '欢迎使用剑网三智能答题器 按F9开始查题 按F10退出',bg='white')
     lb.pack()
     root.mainloop()
 
@@ -206,13 +235,15 @@ def btnexit():
     user32.UnregisterHotKey(None, id1)
     user32.UnregisterHotKey(None, id2)
     window.destroy()
-    sys.exit()
+    os.system('taskkill /PID %s'%os.getpid())
+    #sys.exit()
 
 def answerbg(_):
     global BG
     BG = not BG
     with open('set.cfg','wb') as f:
         pkl.dump(BG,f)
+        pkl.dump(CLICKTO,f)
         pkl.dump(float(tk_ratio.get()),f)
     if IS_SHOWN:
         global root
@@ -230,15 +261,54 @@ def change_ratio(_):
     posy2 = int(GetSystemMetrics(1) * 0.32 * ratio)
     showx = int(GetSystemMetrics(0) * 0.0625 * ratio)
     showy = int(GetSystemMetrics(1) * (290/900) * ratio)
-    root.geometry("+%s+%s"%(showx,showy))
     with open('set.cfg','wb') as f:
         pkl.dump(BG,f)
+        pkl.dump(CLICKTO,f)
+        pkl.dump(float(tk_ratio.get()),f)
+    try:
+        root.geometry("+%s+%s"%(showx,showy))
+    except:
+        pass
+
+def btnuse():
+    os.system('图文教程.png')
+
+def clicks(_):
+    global wcbtn2,CLICKTO,root
+    if not CLICKTO:
+        temp = tkinter.messagebox.askquestion('提示','这个选项是用来给那些无法使用热键的人使用的\n在开始答题以后单击一下屏幕左侧的白色条即可\n你确定要开启这个功能吗?提示:开启后将强制开启答案背景')
+        if temp == 'yes':
+            wcbtn2.select()
+            CLICKTO = not CLICKTO
+            wcbtn.select()
+            wcbtn['state'] = 'disabled'
+            global BG
+            BG = True
+            if IS_SHOWN:
+                user32.UnregisterHotKey(None, id1)
+                user32.UnregisterHotKey(None, id2)
+                root.bind('<Button-1>',clickF9)
+                root.bind('<Button-3>',clickF10)
+    else:
+        CLICKTO = not CLICKTO
+        wcbtn['state'] = 'normal'
+        global hotkey
+        if IS_SHOWN:
+            hotkey = Hotkey()  
+            hotkey.start()
+            root.unbind('<Button-1>')
+            root.unbind('<Button-3>')
+            
+    with open('set.cfg','wb') as f:
+        pkl.dump(BG,f)
+        pkl.dump(CLICKTO,f)
         pkl.dump(float(tk_ratio.get()),f)
 
 window = tkinter.Tk()
 try:
     with open('set.cfg','rb') as f:
         BG = pkl.load(f)
+        CLICKTO = pkl.load(f)
         tk_ratio = tkinter.StringVar()
         tk_ratio.set(pkl.load(f))
 except:
@@ -250,25 +320,33 @@ IS_SHOWN = False
 SCANNING = False
 window.protocol("WM_DELETE_WINDOW", btnexit)
 window.title('剑网三智能答题器')
-wlb = tkinter.Label(window, text = '\n\n欢迎使用剑网三智能答题器')
+wlb = tkinter.Label(window, text = '')
 wbtn = tkinter.Button(window, text = '开始查题',command = btn,state = 'disabled')
 wbtn2 = tkinter.Button(window, text = '退出', command = btnexit)
 wcbtn = tkinter.Checkbutton(window, text = '答案显示背景(如果看不清答案请选择)')
+wcbtn2 = tkinter.Checkbutton(window, text = '开始以后按F9没反应请选择我')
 if BG:
     wcbtn.select()
+if CLICKTO:
+    wcbtn2.select()
+    wcbtn['state'] = 'disabled'
 wscl = tkinter.Scale(window, from_ = 0, to = 1, resolution = 0.01,
                      orient = tkinter.HORIZONTAL,variable = tk_ratio)
 wscl.set(float(tk_ratio.get()))
-wlb2 = tkinter.Label(window, text = '窗口比例:')
+wlb2 = tkinter.Label(window, text = '界面缩放:')
+wbtn3 = tkinter.Button(window, text = '不会\n用？', command = btnuse)
+
 wscl.bind('<ButtonRelease-1>',change_ratio)
 wcbtn.bind('<Button-1>',answerbg)
-wlb.grid(row = 0, column = 0, columnspan = 2)
+wcbtn2.bind('<Button-1>',clicks)
+wlb.grid(row = 0, column = 0, columnspan = 3)
 wbtn.grid(row = 1, column = 0, columnspan = 2)
+wbtn3.grid(row = 1, column = 2, rowspan = 2)
 wbtn2.grid(row = 2, column = 0, columnspan = 2)
-wcbtn.grid(row = 3, column = 0, columnspan = 2)
-wlb2.grid(row = 4, column = 0)
-wscl.grid(row = 4, sticky = tkinter.W+tkinter.E, column = 1)
-
+wcbtn.grid(row = 3, column = 0, columnspan = 3)
+wcbtn2.grid(row = 4, column = 0, columnspan = 3)
+wlb2.grid(row = 5, column = 0)
+wscl.grid(row = 5, sticky = tkinter.W+tkinter.E, column = 1, columnspan = 2)
 
 haoshi = time.time()
 print('欢迎使用剑网三智能答题器')
@@ -290,7 +368,7 @@ except:
         root.destroy()
     sys.exit()
 haoshi = time.time() - haoshi
-wlb['text'] = '''题库加载成功欢迎使用剑网三智能答题器
+wlb['text'] = '''欢迎使用剑网三智能答题器
 题库加载成功 耗时%.3f秒
 请打开科举界面 点击"开始查题"按钮'''%haoshi
 print('题库加载成功')
